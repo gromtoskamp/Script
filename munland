@@ -1,0 +1,76 @@
+//make throttle directly controllable.
+set t to 0.
+lock throttle to t.
+
+//Mun G
+set g to 1.63.
+
+//Give controls to SAS.
+unlock steering.
+sas on.
+set sasMode to "Retrograde".
+
+wait 10.
+
+set t to 1.
+wait until orbit:velocity:orbit:mag < 50.
+set t to 0.
+
+//sets exact speed.
+function setSpeed {
+    parameter targetSpeed.
+    set acceleration to (targetSpeed - verticalspeed).
+    setThrust(ship:mass * (acceleration + g)).
+}.
+
+//set exact thrust(kN).
+function setThrust {
+    parameter thrust.
+    set t to (thrust / ship:maxthrust).
+}.
+
+//land madafaka.
+function land {
+    until alt:radar < 5 {
+        setSpeed(alt:radar / -5).
+    }
+}.
+
+//gettimeToAltitude.
+function getTimeToAltitude {
+    parameter desiredAltitude is 0.
+    return ((alt:radar - desiredAltitude) / orbit:velocity:surface:mag).
+}.
+
+//gets maximum acceleration for the current point in time.
+function getMaxA {
+    return (maxthrust / ship:mass).
+}
+
+//gets the time required to come to a stop when falling straight down.
+function getStopTime {
+    return orbit:velocity:surface:mag / (getMaxA() - g).
+}
+
+//woop woop.
+function suicideBurn {
+    parameter desiredAlt is 0.
+    until alt:radar < desiredAlt {
+        set timeToAltitude to getTimeToAltitude(desiredAlt).
+        set stopTime to getStopTime().
+        clearscreen.
+        print "Time to Alt: " + desiredAlt + " : " + timeToAltitude.
+        print "stopTime: " + stopTime.
+
+        if (timeToAltitude < (stopTime)) {
+            set t to 1.
+        }
+        if (timeToAltitude > (stopTime)) {
+            set t to 0.
+        }
+    }
+}.
+
+print "going for the suicide burn!".
+suicideBurn(10).
+

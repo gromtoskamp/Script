@@ -1,0 +1,32 @@
+//make throttle directly controllable.
+set t to 0.
+lock throttle to t.
+
+set mNode to node(eta:periapsis + time:seconds, 0, 0, 0).
+add mNode.
+
+until mNode:orbit:apoapsis > 0 {
+    set refNode to mNode.
+    remove mNode.
+    set mNode to node(eta:periapsis + time:seconds, 0, 0, refNode:prograde -5).
+    add mNode.
+}
+
+until mNode:orbit:apoapsis < 25000 {
+    set refNode to mNode.
+    remove mNode.
+    set mNode to node(eta:periapsis + time:seconds, 0, 0, refNode:prograde -5).
+    add mNode.
+    wait 0.1.
+}
+
+set maxA to maxthrust / ship:mass.
+set timeToBurn to (mNode:deltaV:mag / maxA).
+warpto(time:seconds + mNode:eta - (timeToBurn / 2) + 10).
+
+sas on.
+set sasMode to "maneuver".
+
+wait until (mNode:eta * 2) < timeToBurn.
+set t to 1.
+wait until mNode:deltaV:mag < 1.

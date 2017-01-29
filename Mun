@@ -1,0 +1,260 @@
+//make throttle directly controllable.
+set t to 1.
+lock throttle to t.
+
+//Kerbins G
+set kerbinG to 9.8.
+
+//Mun G
+set munG to 1.63.
+
+//make heading controllable.
+set steer to heading(90, 90).
+lock steering to steer.
+
+//staging trigger.
+set lockstaging to 0.
+when maxthrust = 0 then {
+    if lockstaging = 0 {
+        print "Staging".
+        stage.
+        wait 0.1.
+    }
+    preserve.
+}.
+
+
+function launch {
+    print "lets get to orbit!".
+    until ship:apoapsis > 80000 {
+        set correctedSpeed to ship:velocity:surface:mag - 100.
+
+        if correctedSpeed < 0 {
+            set correctedSpeed to 0.
+        }.
+        set down to 90 - (correctedSpeed/10).
+
+        if down < 5 {
+            set down to 5.
+        }
+
+        set steer to heading(90, down).
+
+        if ship:apoapsis > 80000 {
+            print "cutting throttle".
+            set t to 0.
+            print "coasting".
+            set state to "coast".
+        }
+    }
+    set t to 0.
+}
+
+function coast {
+    print "coasting!".
+    until eta:apoapsis < 5 {
+        set steer to heading(90, 0).
+        if ship:apoapsis < 80000 {
+            set t to 1.
+        }
+
+        if ship:apoapsis > 80000 {
+            set t to 0.
+        }
+    }
+}
+
+//todo: finetune the finetune.
+//todo: make acceleration smooth again!.
+function finetune {
+    until ship:periapsis > 75000 {
+        set steer to heading(90, 5).
+        if eta:apoapsis < 5 {
+            set t to 1.
+        }
+
+        if eta:apoapsis > 5 {
+            set t to 0.
+        }
+
+        if eta:apoapsis > 100 {
+            set t to 1.
+        }
+    }
+}
+
+//todo: find prograde.
+//todo: find optimal dv.
+function findNode {
+    set mNode to node(time:seconds + 10, 0, 0, 860).
+    add mNode.
+    until (encounter = "None") = false {
+        set newEta to (mNode:eta + 10).
+        remove mNode.
+        set mNode to node(time:seconds + newEta, 0, 0, 860).
+        add mNode.
+    }
+}
+
+function finetuneNode {
+    set target to Mun.
+    set dV to 860.
+    set d to 0.05.
+    set targetPeri to 20000.
+
+    until encounter:periapsis < 20000 {
+        set peri to encounter:periapsis.
+        set newEta to mNode:eta + d.
+        remove mNode.
+        set mNode to node(time:seconds + newEta, 0, 0, dV).
+        add mNode.
+        if encounter:periapsis > peri {
+            set d to (d * -1).
+        }
+    }
+}
+
+//gets maximum acceleration for the current point in time.
+function getMaxA {
+    return (maxthrust / ship:mass).
+}
+
+function getTimeToBurn {
+    return nextNode:deltaV:mag / getMaxA().
+}
+
+
+//Warps to the desired time and waits with executing the script until then.
+function warpSeconds {
+    parameter seconds.
+    set refTime to time:seconds.
+    warpTo(time:seconds + seconds).
+    wait until(time:seconds > refTime + seconds).
+    print "Warp completed!".
+}
+
+//warps to the next node with a default offset of 5 seconds before burn time.
+function warpToNode {
+    parameter offset is 5.
+    warpSeconds(mNode:eta - (getTimeToBurn() / 2) - offset).
+}
+
+function setSasManeuver {
+    unlock steering.
+    sas on.
+    wait 0.1.
+    set sasMode to "maneuver".
+}
+
+function burnNode {
+    parameter speed is 1.
+    wait until nextnode:eta < (getTimeToBurn() / 2).
+    set t to 1.
+    wait until mNode:deltaV:mag < 1.
+    set t to 0.
+    remove mNode.
+    wait 1.
+}
+
+function findFineTuneNode {
+    //finetune approach to mun.
+    set nodeTime to (eta:transition/2) + time:seconds.
+    set mNode to node(nodeTime, 0, 0, 0).
+    add mNode.
+
+    //find the 'just right' prograde.
+    set dP to 0.1.
+    //todo: make sure that it doesnt get stuck in a loop.
+    until encounter:periapsis < 20000 {
+        //save current periapsis.
+        //and current mNode.
+        set peri to encounter:periapsis.
+        set refNode to mNode.
+
+        //remove mNode.
+        remove mNode.
+
+        //set new mNode with prograde increased by dP.
+        set mNode to node(nodeTime, refNode:radialOut, refNode:normal, refNode:prograde + dP).
+        add mNode.
+
+        //check if the current encounter periasis
+        //is closer than before.
+        //if not, invert dP for next round and try again.
+        if encounter:periapsis > peri {
+            set dP to (dP * -1).
+        }
+    }
+    wait 0.1.
+}
+
+function enterOrbit {
+    //set a node at peri.
+    set mNode to node(eta:periapsis + time:seconds, 0, 0, 0).
+    add mNode.
+
+    //increase retrograde until we have achieved orbit.
+    until mNode:orbit:apoapsis > 0 {
+        set refNode to mNode.
+        remove mNode.
+        set mNode to node(eta:periapsis + time:seconds, 0, 0, refNode:prograde -5).
+        add mNode.
+    }
+
+    //increase retrograde until we get apo under 25k.
+    until mNode:orbit:apoapsis < 25000 {
+        set refNode to mNode.
+        remove mNode.
+        set mNode to node(eta:periapsis + time:seconds, 0, 0, refNode:prograde -5).
+        add mNode.
+        wait 0.1.
+    }
+}
+
+//initial stage.
+set g to kerbinG.
+launch().
+coast().
+finetune().
+
+//find transfer window to the Mun.
+findNode().
+finetuneNode().
+
+//prepare for burn.
+//get to the Mun.
+warpToNode().
+setSasManeuver().
+burnNode().
+
+//find finetune node.
+findFineTuneNode().
+warpToNode().
+setSasManeuver().
+burnNode(0.1).
+
+warpSeconds(eta:transition).
+
+enterOrbit().
+
+
+wait 2.
+
+//calculate the burn time for upcoming burn.
+set maxA to maxthrust / ship:mass.
+set timeToBurn to (mNode:deltaV:mag / maxA).
+
+//warp to 10 seconds before we have to start burning.
+warpto(time:seconds + mNode:eta - (timeToBurn / 2) + 10).
+wait mNode:eta - (timeToBurn / 2) + 11.
+
+//give steering to sas Maneuver mode.
+unlock steering.
+sas on.
+set sasMode to "maneuver".
+
+//wait until its time to burn, and get into close orbit of mun.
+wait until (mNode:eta * 2) < timeToBurn.
+set t to 1.
+wait until mNode:deltaV:mag < 1.
+

@@ -1,0 +1,75 @@
+//make throttle directly controllable.
+set t to 0.
+lock throttle to t.
+
+sas off.
+
+//make heading controllable.
+set steer to heading(90, 180).
+lock steering to steer.
+
+//Kerbins G
+set g to 9.8.
+
+//gets maximum acceleration for the current point in time.
+function getMaxA {
+    return (maxthrust / ship:mass).
+}
+
+//gets the time required to come to a stop when falling straight down.
+function getStopTime {
+    return abs(verticalspeed) / (getMaxA() - g).
+}
+
+//gettimeToAltitude.
+function getTimeToAltitude {
+    parameter desiredAltitude is 0.
+    return ((alt:radar - desiredAltitude) / abs(verticalspeed)).
+}.
+
+//woop woop.
+function suicideBurn {
+    parameter desiredAlt is 0.
+    until alt:radar < desiredAlt {
+        set timeToAltitude to getTimeToAltitude(desiredAlt).
+        set stopTime to getStopTime().
+        clearscreen.
+        print "Time to Alt: " + desiredAlt + " : " + timeToAltitude.
+        print "stopTime: " + stopTime.
+
+        if (timeToAltitude < (stopTime)) {
+            set t to 1.
+        }
+        if (timeToAltitude > (stopTime)) {
+            set t to 0.
+        }
+    }
+}.
+
+//Warps to the desired time and waits with executing the script until then.
+function warpSeconds {
+    parameter seconds.
+    set refTime to time:seconds.
+    warpTo(time:seconds + seconds).
+    wait until(time:seconds > refTime + seconds).
+    print "keep it moving!".
+}
+
+warpSeconds(eta:transition).
+wait 10.
+warpSeconds(eta:periapsis - 100).
+
+unlock steering.
+wait 0.1.
+sas on.
+wait 0.1.
+set sasMode to "retrograde".
+
+set t to 1.
+wait until orbit:periapsis < 35000.
+
+set t to 0.
+wait until altitude < 34000.
+
+print "going for the suicide burn!".
+suicideBurn(10).

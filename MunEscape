@@ -1,0 +1,59 @@
+//make throttle directly controllable.
+set t to 0.
+lock throttle to t.
+
+//make heading controllable.
+set steer to heading(90, 0).
+lock steering to steer.
+
+set mNode to node(time:seconds + 10, 0, 0, 0).
+add mNode.
+
+until (mNode:orbit:transition) = "ESCAPE" {
+    set newPro to (mNode:prograde + 5).
+    remove mNode.
+    set mNode to node(time:seconds + 10, 0, 0, newPro).
+    add mNode.
+}
+
+//determine direction.
+//get the lowest point.
+set state to 0.
+set direction to 1.
+until (state = 2) {
+    set refNode to mNode.
+    set oldPeri to mNode:orbit:nextPatch:periapsis.
+    set newEta to (time:seconds + mNode:eta + (orbit:period / 360)).
+    remove mNode.
+    set mNode to node(newEta, refNode:radialOut, refNode:normal, refNode:prograde).
+    add mNode.
+    if (oldPeri < mnode:orbit:nextPatch:periapsis) {
+        set state to (state + 1).
+        set direction to (direction * -1).
+    }
+
+}
+
+//calculate total burn time
+set maxA to maxthrust / ship:mass.
+set timeToBurn to (mNode:deltaV:mag / maxA).
+
+set warpTime to (time:seconds + mNode:eta - (timeToBurn / 2) - 15).
+warpto(warpTime).
+wait until warpTime.
+
+sas on.
+wait 0.1.
+set sasMode to "maneuver".
+
+wait until mNode:eta < (timeToBurn / 2).
+set t to 1.
+wait until mNode:deltaV:mag < 1.
+set t to 0.
+
+remove mNode.
+
+set sasMode to "prograde".
+set t to 0.5.
+wait until orbit:nextPatch:periapsis < 60000.
+set t to 0.

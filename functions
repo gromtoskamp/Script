@@ -1,0 +1,137 @@
+//make throttle directly controllable.
+set t to 0.
+lock throttle to t.
+
+//make heading controllable.
+set steer to heading(90, 90).
+lock steering to steer.
+
+//Kerbins G
+set kerbinG to 9.8.
+
+//Mun G
+set munG to 1.63.
+
+//Turn on RCS.
+print "turning on rcs".
+rcs on.
+
+//stage.
+print "staging!".
+stage.
+
+//staging trigger.
+set lockstaging to 0.
+when maxthrust = 0 then {
+    if lockstaging = 0 {
+        print "Staging".
+        stage.
+        wait 0.1.
+    }
+    preserve.
+}.
+
+//set start missiontime.
+set startMissionTime to missiontime.
+
+//set exact thrust(kN).
+function setThrust {
+    parameter thrust.
+    set t to (thrust / ship:maxthrust).
+}
+
+//sets exact Twr.
+function setTwr {
+    parameter targetTwr.
+    set t to (targetTwr * ship:mass * g) / ship:maxthrust.
+}.
+
+//sets exact speed.
+function setSpeed {
+    parameter targetSpeed.
+    set acceleration to (targetSpeed - verticalspeed).
+    setThrust(ship:mass * (acceleration + g)).
+}.
+
+//state hover.
+if state = "hover" {
+    set height to 100.
+    //if height is under 100, go up.
+    //if height is above 100, go down.
+       setSpeed(height - ship:apoapsis).
+       set ship:control:fore to 1.
+}
+
+//state land.
+if state = "land" {
+    setSpeed((alt:radar) / -5).
+    if alt:radar < 5 {
+        set state to "stop".
+    }
+}
+
+
+//find the 'just right' prograde.
+set dP to 0.1.
+//todo: make sure that it doesnt get stuck in a loop.
+until encounter:periapsis < 20000 {
+    //save current periapsis.
+    //and current mNode.
+    set peri to encounter:periapsis.
+    set refNode to mNode.
+
+    //remove mNode.
+    remove mNode.
+
+    //set new mNode with prograde increased by dP.
+    set mNode to node(nodeTime, refNode:radialOut, refNode:normal, refNode:prograde + dP).
+    add mNode.
+
+    //check if the current encounter periasis
+    //is closer than before.
+    //if not, invert dP for next round and try again.
+    if encounter:periapsis > peri {
+        set dP to (dP * -1).
+    }
+}
+
+//calculate total burn time
+set maxA to maxthrust / ship:mass.
+set timeToBurn to (mNode:deltaV:mag / maxA).
+
+function getForwardSpeed {
+    return ship:velocity:surface * ship:facing:forevector.
+}
+
+function getSideSpeed {
+    return ship:velocity:surface * ship:facing:starvector.
+}
+
+function getVerticalSpeed {
+    return ship:velocity:surface * ship:facing:upvector.
+}
+
+//Warps to the desired time and waits with executing the script until then.
+function warpSeconds {
+    parameter seconds.
+    set refTime to time:seconds.
+    warpTo(time:seconds + seconds).
+    wait until(time:seconds > refTime + seconds).
+    print "Warp completed!".
+}
+
+//gets maximum acceleration for the current point in time.
+function getMaxA {
+    return (maxthrust / ship:mass).
+}
+
+//gets the time required to come to a stop when falling straight down.
+function getStopTime {
+    return abs(verticalspeed) / (getMaxA() - g).
+}
+
+//gettimeToAltitude.
+function getTimeToAltitude {
+    parameter desiredAltitude is 0.
+    return ((alt:radar - desiredAltitude) / abs(verticalspeed)).
+}.
