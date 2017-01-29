@@ -24,9 +24,11 @@ when maxthrust = 0 then {
 }.
 
 
+//Launches to a default apoapsis of 80000
 function launch {
+    parameter desiredApo is 80000.
     print "lets get to orbit!".
-    until ship:apoapsis > 80000 {
+    until ship:apoapsis > desiredApo {
         set correctedSpeed to ship:velocity:surface:mag - 100.
 
         if correctedSpeed < 0 {
@@ -39,26 +41,21 @@ function launch {
         }
 
         set steer to heading(90, down).
-
-        if ship:apoapsis > 80000 {
-            print "cutting throttle".
-            set t to 0.
-            print "coasting".
-            set state to "coast".
-        }
     }
+    print "cutting throttle".
     set t to 0.
 }
 
 function coast {
+    parameter desiredApo is 80000.
     print "coasting!".
     until eta:apoapsis < 5 {
         set steer to heading(90, 0).
-        if ship:apoapsis < 80000 {
+        if ship:apoapsis < desiredApo {
             set t to 1.
         }
 
-        if ship:apoapsis > 80000 {
+        if ship:apoapsis > desiredApo {
             set t to 0.
         }
     }
@@ -67,8 +64,10 @@ function coast {
 //todo: finetune the finetune.
 //todo: make acceleration smooth again!.
 function finetune {
-    until ship:periapsis > 75000 {
-        set steer to heading(90, 5).
+    parameter desiredApo is 80000.
+    coast(desiredApo).
+    until ship:periapsis > (desiredApo * 0.975) {
+        set steer to heading(90, 2).
         if eta:apoapsis < 5 {
             set t to 1.
         }
@@ -78,6 +77,7 @@ function finetune {
         }
 
         if eta:apoapsis > 100 {
+            set steer to heading(90, 10).
             set t to 1.
         }
     }
@@ -125,20 +125,38 @@ function getTimeToBurn {
 
 
 //Warps to the desired time and waits with executing the script until then.
+//Waits until thrust is zero to make sure current
+//acceleration does not disrupt warp.
 function warpSeconds {
     parameter seconds.
+    wait until (getThrust() = 0).
     set refTime to time:seconds.
     warpTo(time:seconds + seconds).
     wait until(time:seconds > refTime + seconds).
     print "Warp completed!".
 }
 
-//warps to the next node with a default offset of 5 seconds before burn time.
+//gets the current combined thrust of all engines.
+function getThrust {
+    list engines in engineList.
+    declare local thrust to 0.
+    for engine in engineList {
+        set thrust to (thrust + engine:thrust).
+    }
+    return thrust.
+}
+
+//Warps to the next node with a default offset of 5 seconds before burn time.
+//Waits until current thrust is 0, to prevent warping problems.
 function warpToNode {
     parameter offset is 5.
+    wait until (getThrust() = 0).
     warpSeconds(mNode:eta - (getTimeToBurn() / 2) - offset).
 }
 
+//Unlocks steering to make sure.
+//Turns on Sas and waits a little bit
+//to prevent problems setting the right mode.
 function setSasManeuver {
     unlock steering.
     sas on.
@@ -146,14 +164,25 @@ function setSasManeuver {
     set sasMode to "maneuver".
 }
 
+//Unlock steering to make sure.
+//Turns on Sas and waits a little bit
+//to prevent problems setting the right mode.
+function setSasRetrograde {
+    unlock steering.
+    sas on.
+    wait 0.1.
+    set sasMode to "retrograde".
+}
+
+//Waits until we're in burn range,
+//burns with a default throttle of 1.
 function burnNode {
     parameter speed is 1.
     wait until nextnode:eta < (getTimeToBurn() / 2).
-    set t to 1.
+    set t to speed.
     wait until mNode:deltaV:mag < 1.
-    set t to 0.
+    set t to speed.
     remove mNode.
-    wait 1.
 }
 
 function findFineTuneNode {
@@ -211,10 +240,148 @@ function enterOrbit {
     }
 }
 
+//warp to the transition,
+//and wait 5 seconds to guarantee smooth transition.
+function transition {
+    warpSeconds(eta:transition).
+    wait 5.
+}
+
+//warps to node.
+//and executes burn.
+function executeNode {
+    parameter throttle is 1.
+    warpToNode().
+    setSasManeuver().
+    burnNode(throttle).
+}
+
+//slows down to a provided speed.
+//using a default throttle of 1.
+function slowdownTo {
+    parameter speed.
+    parameter throttle is 1.
+    set t to throttle.
+    wait until orbit:velocity:orbit:mag < 50.
+    set t to 0.
+    wait 0.1.
+}
+
+//gets the time required to come to a stop when falling straight down.
+function getStopTime {
+    return abs(verticalspeed) / (getMaxA() - g).
+}
+
+//gettimeToAltitude.
+function getTimeToAltitude {
+    parameter desiredAltitude is 0.
+    return ((alt:radar - desiredAltitude) / abs(verticalspeed)).
+}
+
+//woop woop.
+function suicideBurn {
+    parameter desiredAlt is 0.
+    until alt:radar < desiredAlt {
+        set timeToAltitude to getTimeToAltitude(desiredAlt).
+        set stopTime to getStopTime().
+        clearscreen.
+        print "BRACE!".
+        print "Time to Alt: " + desiredAlt + " : " + timeToAltitude.
+        print "stopTime:    " + stopTime.
+
+        if (timeToAltitude < (stopTime)) {
+            set t to 1.
+        }
+        if (timeToAltitude > (stopTime)) {
+            set t to 0.
+        }
+    }
+}
+
+function extendGear {
+    gear on.
+}
+
+function land {
+    parameter waitTime is 30.
+    set t to 0.
+    extendGear().
+    set stamp to time:seconds + waitTime.
+    until time:seconds > stamp {
+        on ag1{
+            break.
+        }
+    }
+}
+
+function orbit {
+    set orbitspeed to 540.
+    set orbitheight to 20000.
+    set t to 1.
+    set correctionalSpeed to orbitspeed / 20.
+    set steer to heading(90, 90).
+    wait until ship:velocity:surface:mag > correctionalspeed.
+    until ship:apoapsis > orbitheight {
+        set down to min((ship:velocity:surface:mag / 10 * correctionalSpeed) * 90, 90).
+        set steer to heading(90, down).
+    }
+    set t to 0.
+
+    finetune(orbitheight).
+}
+
+function findEscapeNode {
+    set mNode to node(time:seconds + 10, 0, 0, 0).
+    add mNode.
+
+    until (mNode:orbit:transition) = "ESCAPE" {
+        set newPro to (mNode:prograde + 5).
+        remove mNode.
+        set mNode to node(time:seconds + 10, 0, 0, newPro).
+        add mNode.
+    }
+
+    //determine direction.
+    //get the lowest point.
+    set state to 0.
+    set direction to 1.
+    until (state = 2) {
+        set refNode to mNode.
+        set oldPeri to mNode:orbit:nextPatch:periapsis.
+        set newEta to (time:seconds + mNode:eta + (orbit:period / 360)).
+        remove mNode.
+        set mNode to node(newEta, refNode:radialOut, refNode:normal, refNode:prograde).
+        add mNode.
+        if (oldPeri < mnode:orbit:nextPatch:periapsis) {
+            set state to (state + 1).
+            set direction to (direction * -1).
+        }
+
+    }
+}
+
+function escapeToPeri {
+    parameter desiredPeri is 60000.
+    findEscapeNode().
+    executeNode().
+    set sasMode to "prograde".
+    set t to 1.
+    wait until orbit:nextPatch:periapsis < desiredPeri.
+    set to to 0.
+}
+
+function lowerPeriTo {
+    parameter desiredPeri.
+    setSasRetrograde().
+    wait 5.
+    set t to 1.
+    wait until orbit:periapsis < desiredPeri.
+    set t to 0.
+}
+
 //initial stage.
 set g to kerbinG.
 launch().
-coast().
 finetune().
 
 //find transfer window to the Mun.
@@ -223,38 +390,28 @@ finetuneNode().
 
 //prepare for burn.
 //get to the Mun.
-warpToNode().
-setSasManeuver().
-burnNode().
+executeNode().
 
 //find finetune node.
 findFineTuneNode().
-warpToNode().
-setSasManeuver().
-burnNode(0.1).
+executeNode(0.1).
 
-warpSeconds(eta:transition).
-
+transition().
 enterOrbit().
+executeNode().
 
+setSasRetrograde().
+wait 10.
+set g to munG.
+slowdownTo(100).
+extendGear().
+suicideBurn(12).
+land().
 
-wait 2.
+orbit().
+escapeToPeri().
 
-//calculate the burn time for upcoming burn.
-set maxA to maxthrust / ship:mass.
-set timeToBurn to (mNode:deltaV:mag / maxA).
-
-//warp to 10 seconds before we have to start burning.
-warpto(time:seconds + mNode:eta - (timeToBurn / 2) + 10).
-wait mNode:eta - (timeToBurn / 2) + 11.
-
-//give steering to sas Maneuver mode.
-unlock steering.
-sas on.
-set sasMode to "maneuver".
-
-//wait until its time to burn, and get into close orbit of mun.
-wait until (mNode:eta * 2) < timeToBurn.
-set t to 1.
-wait until mNode:deltaV:mag < 1.
-
+transition().
+warpSeconds(eta:periapsis - 100).
+lowerPeriTo(35000).
+suicideBurn(12).
